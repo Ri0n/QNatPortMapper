@@ -18,6 +18,11 @@ win32 {
 		HEADERS  += $$PWD/natportmapper_win.h
 		LIBS += -lole32 -loleaut32
 	}
+} else {
+	# miniupnpc
+	SOURCES += $$PWD/natportmapper_miniupnp.cpp
+	HEADERS += $$PWD/natportmapper_miniupnp.h
+	LIBS += -lminiupnpc
 }
 
 INCLUDEPATH += $$PWD

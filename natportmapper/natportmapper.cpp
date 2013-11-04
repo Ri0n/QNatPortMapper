@@ -7,6 +7,8 @@
 # else
 #  include "natportmapper_win.h"
 # endif
+#else
+# include "natportmapper_miniupnp.h"
 #endif
 
 //------------------- NatPortMapping ----------------------
