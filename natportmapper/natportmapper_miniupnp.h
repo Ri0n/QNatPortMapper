@@ -1,6 +1,8 @@
 #ifndef NATPORTMAPPER_MINIUPNP_H
 #define NATPORTMAPPER_MINIUPNP_H
 
+#include <QHostAddress>
+
 #include "natportmapper.h"
 
 class QHostAddress;
@@ -10,10 +12,17 @@ class MiniUPnPWrapper;
 class NatPortMappingMiniupnpc : public NatPortMapping
 {
 public:
-	NatPortMappingMiniupnpc(NatPortMapperPrivate *mapper,
-						   bool autoUnmap = false) :
-		NatPortMapping(autoUnmap),
-		_mapper(mapper) { }
+	NatPortMappingMiniupnpc(MiniUPnPWrapper *wrapper, QAbstractSocket::SocketType socketType,
+							quint16 externalPort, quint16 internalPort,
+							const QHostAddress &internalAddress, const QString &description) :
+		_wrapper(wrapper),
+		_proto(socketType),
+		_externalPort(externalPort),
+		_internalPort(internalPort),
+		_internalAddress(internalAddress),
+		_description(description)
+	{}
+
 	~NatPortMappingMiniupnpc();
 
 	quint16 internalPort() const;
@@ -26,7 +35,13 @@ public:
 	QString protoStr() const;
 private:
 	friend class MiniUPnPWrapper;
-	NatPortMapperPrivate *_mapper;
+	MiniUPnPWrapper *_wrapper;
+	QAbstractSocket::SocketType _proto;
+	quint16 _externalPort;
+	quint16 _internalPort;
+	QHostAddress _internalAddress;
+	QHostAddress _externalAddress;
+	QString _description;
 
 };
 
@@ -48,11 +63,6 @@ public:
 	NatPortMapping* add(QAbstractSocket::SocketType socketType,
 				int externalPort, int internalPort,
 				const QHostAddress &internalAddress, const QString &name);
-
-	bool remove(QAbstractSocket::SocketType socketType, int externalport );
-	bool remove(NatPortMappingMiniupnpc *mapping);
-private slots:
-	bool initCollection();
 };
 
 #endif

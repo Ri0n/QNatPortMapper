@@ -9,6 +9,8 @@
 
 #include "natportmapper_miniupnp.h"
 
+Q_DECLARE_METATYPE(NatPortMappingMiniupnpc*)
+
 class MiniUPnPWrapper : public QObject
 {
 	Q_OBJECT
@@ -19,7 +21,7 @@ signals:
 	void initialized();
 
 public:
-	MiniUPnPWrapper(QObject *parent) :
+	MiniUPnPWrapper(QObject *parent = 0) :
 		QObject(parent)
 	{
 		igddatas = new IGDdatas(); // zero init
@@ -34,11 +36,12 @@ public:
 	}
 
 	inline bool isInitialized() const {
-		return upnpurls->controlURL[0] != '\0';
+		return upnpurls->controlURL != 0;
 	}
 
 	void discover() { QMetaObject::invokeMethod(this, "doDiscover", Qt::QueuedConnection); }
-	void add(NatPortMappingMiniupnpc *mapping) { QMetaObject::invokeMethod(this, "doAdd", Qt::QueuedConnection, Q_ARG(void*, mapping)); }
+	void add(NatPortMappingMiniupnpc *mapping) { QMetaObject::invokeMethod(this, "doAdd", Qt::QueuedConnection, Q_ARG(NatPortMappingMiniupnpc*, mapping)); }
+	void remove(NatPortMappingMiniupnpc *mapping) { QMetaObject::invokeMethod(this, "doRemove", Qt::QueuedConnection, Q_ARG(NatPortMappingMiniupnpc*, mapping)); }
 private slots:
 	void doDiscover()
 	{
@@ -74,6 +77,7 @@ private slots:
 				GetUPNPUrls (upnpurls, igddatas, dev->descURL, dev->scope_id);
 			}
 			freeUPNPDevlist(devlist);
+			emit initialized();
 		}
 		else
 		{
@@ -87,25 +91,42 @@ private slots:
 			qDebug("NPM: the init was not done!");
 			return;
 		}
-		QByteArray port = QByteArray::number(mapping->_port);
 		int r = UPNP_AddPortMapping(upnpurls->controlURL, igddatas->first.servicetype,
 									QByteArray::number(mapping->_externalPort).constData(),
 									QByteArray::number(mapping->_internalPort).constData(),
 									mapping->_internalAddress.toString().toLatin1(),
-									mapping->_description, mapping->protoStr().toLatin1().constData(), NULL, NULL);
-		if(r==0)
-			printf("AddPortMapping(%s, %s, %s) failed\n", port_str, port_str, addr);
+									mapping->_description.toUtf8().constData(),
+									mapping->protoStr().toLatin1().constData(), NULL, NULL);
+		if (r != 0)
+			qDebug("AddPortMapping(%hu, %hu) failed",
+				   mapping->externalPort(), mapping->internalPort());
+	}
+
+	void doRemove(NatPortMappingMiniupnpc *mapping)
+	{
+		if(!isInitialized()) {
+			qDebug("NPM: the init was not done!");
+			return;
+		}
+		int r = UPNP_DeletePortMapping(upnpurls->controlURL, igddatas->first.servicetype,
+									   QByteArray::number(mapping->_externalPort).constData(),
+									   mapping->protoStr().toLatin1().constData(), NULL);
+		if (r != 0)
+			qDebug("DeletePortMapping(%hu) failed",
+				   mapping->externalPort());
 	}
 };
 
 NatPortMapperPrivate::NatPortMapperPrivate(QObject *parent) :
 	QObject(parent), _wrapper(0)
 {
-	_wrapper = new MiniUPnPWrapper(this);
+	qRegisterMetaType<NatPortMappingMiniupnpc*>();
+	_wrapper = new MiniUPnPWrapper();
 	QThread *t = new QThread(this);
 	_wrapper->moveToThread(t);
 	connect(_wrapper, SIGNAL(initialized()), SIGNAL(initialized()));
 	t->start();
+	_wrapper->discover();
 }
 
 NatPortMapperPrivate::~NatPortMapperPrivate()
@@ -113,6 +134,7 @@ NatPortMapperPrivate::~NatPortMapperPrivate()
 	QThread *t = _wrapper->thread();
 	t->quit();
 	t->wait();
+	delete _wrapper;
 }
 
 bool NatPortMapperPrivate::isReady() const
@@ -125,37 +147,10 @@ NatPortMapping *NatPortMapperPrivate::add(QAbstractSocket::SocketType socketType
 			const QHostAddress &internalAddress, const QString &description)
 {
 
-	NatPortMappingMiniupnpc *mapping = new NatPortMappingMiniupnpc(this, socketType, externalPort, internalPort,
+	NatPortMappingMiniupnpc *mapping = new NatPortMappingMiniupnpc(_wrapper, socketType, externalPort, internalPort,
 																   internalAddress, description);
 	_wrapper->add(mapping);
 	return mapping;
-}
-
-// Takes a protocol 't' for TCP or 'u' for UDP, and a port being forwarded
-// Talks UPnP to the router to remove the forwarding
-// Returns false if there was an error
-bool NatPortMapperPrivate::remove(QAbstractSocket::SocketType socketType, int externalport )
-{
-	QString proto(socketType == QAbstractSocket::TcpSocket? "TCP": "UDP");
-	_collection->Remove(externalport, proto);
-	return true;
-}
-
-bool NatPortMapperPrivate::remove(NatPortMappingMiniupnpc *mapping)
-{
-	_collection->Remove(mapping->externalPort(), mapping->protoStr());
-	return true;
-}
-
-bool NatPortMapperPrivate::initCollection()
-{
-	_collection = _nat->StaticPortMappingCollection();
-	if (_collection) {
-		_collectionInitTimer->stop();
-		emit initialized();
-		return true;
-	}
-	return false;
 }
 
 //---------------------------- NatPortMappingMiniupnpc --------------------------
@@ -168,35 +163,38 @@ NatPortMappingMiniupnpc::~NatPortMappingMiniupnpc()
 
 quint16 NatPortMappingMiniupnpc::internalPort() const
 {
-	return _mapping->InternalPort();
+	return _internalPort;
 }
 
 QHostAddress NatPortMappingMiniupnpc::internalAddress() const
 {
-	return QHostAddress(_mapping->InternalClient());
+	return _internalAddress;
 }
 
 quint16 NatPortMappingMiniupnpc::externalPort() const
 {
-	return _mapping->ExternalPort();
+	return _externalPort;
 }
 
 QHostAddress NatPortMappingMiniupnpc::externalAddress() const
 {
-	return QHostAddress(_mapping->ExternalIPAddress());
+	return _externalAddress;
 }
 
 QString NatPortMappingMiniupnpc::description() const
 {
-	return _mapping->Description();
+	return _description;
 }
 
 bool NatPortMappingMiniupnpc::unmap()
 {
-	return _mapper->remove(this);
+	_wrapper->remove(this);
+	return true;
 }
 
 QString NatPortMappingMiniupnpc::protoStr() const
 {
-	return _mapping->Protocol();
+	return QString(_proto == QAbstractSocket::TcpSocket? "TCP": "UDP");
 }
+
+#include "natportmapper_miniupnp.moc"
