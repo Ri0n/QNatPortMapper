@@ -18,6 +18,7 @@ public:
     ~MainWindow();
 private slots:
     void mapperReady();
+    void mappingReady();
 private:
     Ui::MainWindow *ui;
     NatPortMapper *mapper;

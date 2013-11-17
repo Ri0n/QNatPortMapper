@@ -4,9 +4,11 @@
 #include <QObject>
 #include <QAbstractSocket>
 
-class NatPortMapping
+class NatPortMapping : public QObject
 {
+    Q_OBJECT
 public:
+    NatPortMapping(QObject *parent = 0) : QObject(parent), _autoUnmap(false) { }
     virtual quint16 internalPort() const = 0;
     virtual QHostAddress internalAddress() const = 0;
     virtual quint16 externalPort() const = 0;
@@ -15,15 +17,16 @@ public:
     virtual bool unmap() = 0;
 
     /* Controls where we have to unmap on destruct. */
-    inline void setAutoUnmap(bool state) { autoUnmap = state; }
-protected:
-    NatPortMapping(bool autoUnmap = false) :
-        autoUnmap(autoUnmap)
-    {}
+    inline void setAutoUnmap(bool state) { _autoUnmap = state; }
 
+signals:
+    void mapped();
+    void unmapped();
+    void error();
+protected:
     virtual ~NatPortMapping();
 protected:
-    bool autoUnmap;
+    bool _autoUnmap;
 };
 
 class NatPortMapperPrivate;

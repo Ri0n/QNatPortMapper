@@ -26,6 +26,12 @@ void MainWindow::mapperReady()
 {
     ui->lblStatus->setText("Initialized!!!");
     NatPortMapping *mapping = mapper->map(QAbstractSocket::TcpSocket, 8910, 8910, QHostAddress(QString("192.168.1.2")), "upnptest");
+    connect(mapping, SIGNAL(mapped()), SLOT(mappingReady()));
+}
+
+void MainWindow::mappingReady()
+{
+    NatPortMapping *mapping = qobject_cast<NatPortMapping *>(sender());
     ui->lblInternal->setText(QString("%1:%2").arg(mapping->internalAddress().toString()).arg(mapping->internalPort()));
     ui->lblExternal->setText(QString("%1:%2").arg(mapping->externalAddress().toString()).arg(mapping->externalPort()));
     ui->lblDesc->setText(mapping->description());

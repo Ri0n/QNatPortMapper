@@ -229,7 +229,7 @@ bool NatPortMapperPrivate::initCollection()
 //---------------------------- NatPortMappingWin --------------------------
 NatPortMappingWin::~NatPortMappingWin()
 {
-    if (autoUnmap) {
+    if (_autoUnmap) {
         unmap();
     }
     safeRelease(_mapping);

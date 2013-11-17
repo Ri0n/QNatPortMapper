@@ -11,8 +11,9 @@ class MiniUPnPWrapper;
 
 class NatPortMappingMiniupnpc : public NatPortMapping
 {
+    Q_OBJECT
 public:
-	NatPortMappingMiniupnpc(MiniUPnPWrapper *wrapper, QAbstractSocket::SocketType socketType,
+    NatPortMappingMiniupnpc(MiniUPnPWrapper *wrapper, QAbstractSocket::SocketType socketType,
 							quint16 externalPort, quint16 internalPort,
 							const QHostAddress &internalAddress, const QString &description) :
 		_wrapper(wrapper),
@@ -23,7 +24,7 @@ public:
 		_description(description)
 	{}
 
-	~NatPortMappingMiniupnpc();
+    ~NatPortMappingMiniupnpc();
 
 	quint16 internalPort() const;
 	QHostAddress internalAddress() const;
@@ -44,6 +45,7 @@ private:
 	QString _description;
 
 };
+
 
 class NatPortMapperPrivate : public QObject
 {

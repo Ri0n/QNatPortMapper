@@ -72,7 +72,7 @@ bool NatPortMapperPrivate::initCollection()
 //---------------------------- NatPortMappingActiveQt --------------------------
 NatPortMappingActiveQt::~NatPortMappingActiveQt()
 {
-    if (autoUnmap) {
+    if (_autoUnmap) {
         unmap();
     }
 }
