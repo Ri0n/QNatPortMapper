@@ -58,8 +58,7 @@ NatPortMappingActiveQt::~NatPortMappingActiveQt()
 
 QHostAddress NatPortMappingActiveQt::externalAddress() const
 {
-    qDebug() << "FIXME: we can't do this in caller's thread.";
-    return QHostAddress(_mapping->ExternalIPAddress());
+    return _wrapper->externalAddress();
 }
 
 void NatPortMappingActiveQt::unmap()
@@ -67,12 +66,13 @@ void NatPortMappingActiveQt::unmap()
     return _wrapper->remove(this);
 }
 
-void NatPortMappingActiveQt::_initFromAdd()
+void NatPortMappingActiveQt::initFromAdd()
 {
     QString proto(_proto == QAbstractSocket::TcpSocket? "TCP": "UDP");
     _mapping = _wrapper->collection()->Add(_externalPort, proto, _internalPort, _internalAddress.toString(),
                   true, _description);
     if (_mapping) {
+        initExternalAddress();
         QMetaObject::invokeMethod(this, "mapped", Qt::QueuedConnection);
     } else {
         qDebug("AddPortMapping(%hu, %hu) failed",
@@ -81,13 +81,20 @@ void NatPortMappingActiveQt::_initFromAdd()
     }
 }
 
-void NatPortMappingActiveQt::_blockingUnmap()
+void NatPortMappingActiveQt::blockingUnmap()
 {
     QString proto(_proto == QAbstractSocket::TcpSocket? "TCP": "UDP");
     _wrapper->collection()->Remove(_externalPort, proto);
     delete _mapping;
     _mapping = 0;
     QMetaObject::invokeMethod(this, "unmapped", Qt::QueuedConnection);
+}
+
+void NatPortMappingActiveQt::initExternalAddress()
+{
+    if (_wrapper->externalAddress().isNull()) {
+        _wrapper->setExternaAddress(QHostAddress(_mapping->ExternalIPAddress()));
+    }
 }
 
 //-------------------------------------------------------
@@ -139,7 +146,7 @@ void UPnPNATWrapper::doAdd(NatPortMappingActiveQt *mapping)
     if (!_collection) {
         return;
     }
-    mapping->_initFromAdd();
+    mapping->initFromAdd();
 }
 
 void UPnPNATWrapper::doRemove(NatPortMappingActiveQt *mapping)
@@ -147,5 +154,5 @@ void UPnPNATWrapper::doRemove(NatPortMappingActiveQt *mapping)
     if (!_collection) {
         return;
     }
-    mapping->_blockingUnmap();
+    mapping->blockingUnmap();
 }

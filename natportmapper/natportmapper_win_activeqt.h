@@ -37,10 +37,10 @@ public:
     void unmap();
 private:
     friend class UPnPNATWrapper;
-
-    // next function called from wrapper thread
-    void _initFromAdd();
-    void _blockingUnmap();
+   // next function called from wrapper thread
+    void initFromAdd();
+    void blockingUnmap();
+    void initExternalAddress();
 
     UPnPNATWrapper *_wrapper;
     NATUPNPLib::IStaticPortMapping *_mapping;
@@ -53,6 +53,7 @@ class UPnPNATWrapper : public QObject
 
     NATUPNPLib::UPnPNAT *_nat;
     NATUPNPLib::IStaticPortMappingCollection *_collection;
+    QHostAddress _externalAddress;
 public:
     UPnPNATWrapper(QObject *parent = 0);
 
@@ -72,6 +73,11 @@ private slots:
     void doDiscover();
     void doAdd(NatPortMappingActiveQt *mapping);
     void doRemove(NatPortMappingActiveQt *mapping);
+
+private:
+    friend class NatPortMappingActiveQt;
+    inline QHostAddress externalAddress() const { return _externalAddress; }
+    inline void setExternaAddress(const QHostAddress &a) { _externalAddress = a; }
 };
 
 
