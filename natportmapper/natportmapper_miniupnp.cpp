@@ -204,10 +204,9 @@ QString NatPortMappingMiniupnpc::description() const
     return _description;
 }
 
-bool NatPortMappingMiniupnpc::unmap()
+void NatPortMappingMiniupnpc::unmap()
 {
     _wrapper->remove(this);
-    return true;
 }
 
 QString NatPortMappingMiniupnpc::protoStr() const

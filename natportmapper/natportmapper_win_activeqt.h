@@ -2,12 +2,14 @@
 #define NATPORTMAPPER_WIN_ACTIVEQT_H
 
 #include <QObject>
+#include <QHostAddress>
 
 #include "natportmapper.h"
 
 class QHostAddress;
 class QTimer;
 class NatPortMapperPrivate;
+class UPnPNATWrapper;
 namespace NATUPNPLib {
     class UPnPNAT;
     class IStaticPortMappingCollection;
@@ -17,34 +19,67 @@ namespace NATUPNPLib {
 class NatPortMappingActiveQt : public NatPortMapping
 {
 public:
-    NatPortMappingActiveQt(NatPortMapperPrivate *mapper,
-                           NATUPNPLib::IStaticPortMapping *mapping,
-                           bool autoUnmap = false) :
-        NatPortMapping(autoUnmap),
-        _mapper(mapper),
+    NatPortMappingActiveQt(UPnPNATWrapper *wrapper,
+                           NATUPNPLib::IStaticPortMapping *mapping) :
+        _wrapper(wrapper),
         _mapping(mapping) { }
     ~NatPortMappingActiveQt();
 
-    quint16 internalPort() const;
-    QHostAddress internalAddress() const;
-    quint16 externalPort() const;
-    QHostAddress externalAddress() const;
-    QString description() const;
-    bool unmap();
+    NatPortMappingActiveQt(UPnPNATWrapper *wrapper, QAbstractSocket::SocketType socketType,
+                           int externalPort, int internalPort,
+                           const QHostAddress &internalAddress, const QString &description) :
+        NatPortMapping(socketType, externalPort, internalPort, internalAddress, description),
+        _wrapper(wrapper),
+        _mapping(0) { }
 
-    QString protoStr() const;
+
+    QHostAddress externalAddress() const;
+    void unmap();
 private:
-    NatPortMapperPrivate *_mapper;
+    friend class UPnPNATWrapper;
+
+    // next function called from wrapper thread
+    void _initFromAdd();
+    void _blockingUnmap();
+
+    UPnPNATWrapper *_wrapper;
     NATUPNPLib::IStaticPortMapping *_mapping;
 };
 
-class NatPortMapperPrivate : public QObject
+
+class UPnPNATWrapper : public QObject
 {
     Q_OBJECT
 
     NATUPNPLib::UPnPNAT *_nat;
     NATUPNPLib::IStaticPortMappingCollection *_collection;
-    QTimer *_collectionInitTimer;
+public:
+    UPnPNATWrapper(QObject *parent = 0);
+
+    void discover();
+    void add(NatPortMappingActiveQt *mapping);
+    void remove(NatPortMappingActiveQt *mapping);
+
+    inline bool isInitialized() const {
+        return _collection != 0;
+    }
+    inline NATUPNPLib::IStaticPortMappingCollection *collection() const { return _collection; }
+
+signals:
+    void initialized();
+
+private slots:
+    void doDiscover();
+    void doAdd(NatPortMappingActiveQt *mapping);
+    void doRemove(NatPortMappingActiveQt *mapping);
+};
+
+
+class NatPortMapperPrivate : public QObject
+{
+    Q_OBJECT
+
+    UPnPNATWrapper *_wrapper;
 
 signals:
     void initialized();
@@ -53,16 +88,13 @@ public:
     NatPortMapperPrivate(QObject *parent);
     ~NatPortMapperPrivate();
 
-    inline bool isReady() const { return _collection != NULL; }
+    inline bool isReady() const { return _wrapper->isInitialized(); }
 
     NatPortMapping* add(QAbstractSocket::SocketType socketType,
                 int externalPort, int internalPort,
                 const QHostAddress &internalAddress, const QString &description);
 
-    bool remove(QAbstractSocket::SocketType socketType, int externalport );    
     bool remove(NatPortMappingActiveQt *mapping);
-private slots:
-    bool initCollection();
 };
 
 #endif // NATPORTMAPPER_WIN_ACTIVEQT_H

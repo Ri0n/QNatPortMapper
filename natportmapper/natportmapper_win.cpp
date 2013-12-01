@@ -270,7 +270,7 @@ QString NatPortMappingWin::description() const
     return SUCCEEDED(status)? result.toString() : QString();
 }
 
-bool NatPortMappingWin::unmap()
+void NatPortMappingWin::unmap()
 {
     return _mapper->remove(this);
 }

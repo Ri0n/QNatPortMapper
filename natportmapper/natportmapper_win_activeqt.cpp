@@ -1,73 +1,52 @@
 #include <QHostAddress>
 #include <QMessageBox>
 #include <QTimer>
+#include <QThread>
 #include <QDebug>
+#include <windows.h>
 
 #include "natportmapper_win_activeqt.h"
 #include "natupnp.h"
 
+Q_DECLARE_METATYPE(NatPortMappingActiveQt*)
+
 NatPortMapperPrivate::NatPortMapperPrivate(QObject *parent) :
-    QObject(parent), _nat(0), _collection(0),
-    _collectionInitTimer(0)
+    QObject(parent)
 {
-    _nat = new NATUPNPLib::UPnPNAT(this);
-    // Get the collection of forwarded ports from it, has Windows send UPnP messages to the NAT router
-    _collection = _nat->StaticPortMappingCollection();
-    if (!_collection) {
-        _collectionInitTimer = new QTimer(this);
-        _collectionInitTimer->setInterval(1500);
-        _collectionInitTimer->setSingleShot(false);
-        connect(_collectionInitTimer, SIGNAL(timeout()), SLOT(initCollection()));
-        _collectionInitTimer->start();
-    }
+    qRegisterMetaType<NatPortMappingActiveQt*>();
+    _wrapper = new UPnPNATWrapper();
+    QThread *t = new QThread(this);
+    _wrapper->moveToThread(t);
+    connect(_wrapper, SIGNAL(initialized()), SIGNAL(initialized()));
+    t->start();
+    _wrapper->discover();
 }
 
 NatPortMapperPrivate::~NatPortMapperPrivate()
 {
-
+    QThread *t = _wrapper->thread();
+    t->quit();
+    t->wait();
+    delete _wrapper;
 }
 
 NatPortMapping *NatPortMapperPrivate::add(QAbstractSocket::SocketType socketType,
             int externalPort, int internalPort,
             const QHostAddress &internalAddress, const QString &description)
 {
-    if (!_collection) {
-        return 0;
-    }
-    QString proto(socketType == QAbstractSocket::TcpSocket? "TCP": "UDP");
-    NATUPNPLib::IStaticPortMapping *mapping = _collection
-            ->Add(externalPort, proto,internalPort, internalAddress.toString(),
-                  true, description);
-
-    return mapping ? new NatPortMappingActiveQt(this, mapping, true) : 0;
-}
-
-// Takes a protocol 't' for TCP or 'u' for UDP, and a port being forwarded
-// Talks UPnP to the router to remove the forwarding
-// Returns false if there was an error
-bool NatPortMapperPrivate::remove(QAbstractSocket::SocketType socketType, int externalport )
-{
-    QString proto(socketType == QAbstractSocket::TcpSocket? "TCP": "UDP");
-    _collection->Remove(externalport, proto);
-    return true;
+    NatPortMappingActiveQt *mapping = new NatPortMappingActiveQt(_wrapper, socketType, externalPort, internalPort,
+                                     internalAddress, description);
+    _wrapper->add(mapping);
+    return mapping;
 }
 
 bool NatPortMapperPrivate::remove(NatPortMappingActiveQt *mapping)
 {
-    _collection->Remove(mapping->externalPort(), mapping->protoStr());
+    _wrapper->remove(mapping);
     return true;
 }
 
-bool NatPortMapperPrivate::initCollection()
-{
-    _collection = _nat->StaticPortMappingCollection();
-    if (_collection) {
-        _collectionInitTimer->stop();
-        emit initialized();
-        return true;
-    }
-    return false;
-}
+
 
 //---------------------------- NatPortMappingActiveQt --------------------------
 NatPortMappingActiveQt::~NatPortMappingActiveQt()
@@ -77,37 +56,96 @@ NatPortMappingActiveQt::~NatPortMappingActiveQt()
     }
 }
 
-quint16 NatPortMappingActiveQt::internalPort() const
-{
-    return _mapping->InternalPort();
-}
-
-QHostAddress NatPortMappingActiveQt::internalAddress() const
-{
-    return QHostAddress(_mapping->InternalClient());
-}
-
-quint16 NatPortMappingActiveQt::externalPort() const
-{
-    return _mapping->ExternalPort();
-}
-
 QHostAddress NatPortMappingActiveQt::externalAddress() const
 {
+    qDebug() << "FIXME: we can't do this in caller's thread.";
     return QHostAddress(_mapping->ExternalIPAddress());
 }
 
-QString NatPortMappingActiveQt::description() const
+void NatPortMappingActiveQt::unmap()
 {
-    return _mapping->Description();
+    return _wrapper->remove(this);
 }
 
-bool NatPortMappingActiveQt::unmap()
+void NatPortMappingActiveQt::_initFromAdd()
 {
-    return _mapper->remove(this);
+    QString proto(_proto == QAbstractSocket::TcpSocket? "TCP": "UDP");
+    _mapping = _wrapper->collection()->Add(_externalPort, proto, _internalPort, _internalAddress.toString(),
+                  true, _description);
+    if (_mapping) {
+        QMetaObject::invokeMethod(this, "mapped", Qt::QueuedConnection);
+    } else {
+        qDebug("AddPortMapping(%hu, %hu) failed",
+               _externalPort, _internalPort);
+        QMetaObject::invokeMethod(this, "error", Qt::QueuedConnection);
+    }
 }
 
-QString NatPortMappingActiveQt::protoStr() const
+void NatPortMappingActiveQt::_blockingUnmap()
 {
-    return _mapping->Protocol();
+    QString proto(_proto == QAbstractSocket::TcpSocket? "TCP": "UDP");
+    _wrapper->collection()->Remove(_externalPort, proto);
+    delete _mapping;
+    _mapping = 0;
+    QMetaObject::invokeMethod(this, "unmapped", Qt::QueuedConnection);
+}
+
+//-------------------------------------------------------
+// UPnPNATWrapper
+//-------------------------------------------------------
+UPnPNATWrapper::UPnPNATWrapper(QObject *parent) :
+    QObject(parent),
+    _nat(0),
+    _collection(0)
+{
+
+}
+
+void UPnPNATWrapper::discover()
+{
+    QMetaObject::invokeMethod(this, "doDiscover", Qt::QueuedConnection);
+}
+
+void UPnPNATWrapper::add(NatPortMappingActiveQt *mapping)
+{
+    QMetaObject::invokeMethod(this, "doAdd", Qt::QueuedConnection,
+                              Q_ARG(NatPortMappingActiveQt*, mapping));
+}
+
+void UPnPNATWrapper::remove(NatPortMappingActiveQt *mapping)
+{
+    QMetaObject::invokeMethod(this, "doRemove", Qt::QueuedConnection,
+                              Q_ARG(NatPortMappingActiveQt*, mapping));
+}
+
+void UPnPNATWrapper::doDiscover()
+{
+    CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    _nat = new NATUPNPLib::UPnPNAT(this);
+    qDebug() << "nat" << _nat;
+    for (int i = 0; i < 3; i++) {
+        _collection = _nat->StaticPortMappingCollection();
+        qDebug() << "collection" << _nat;
+        if (_collection) {
+            emit initialized();
+            return;
+        }
+        Sleep(1000);
+    }
+}
+
+void UPnPNATWrapper::doAdd(NatPortMappingActiveQt *mapping)
+{
+    if (!_collection) {
+        return;
+    }
+    mapping->_initFromAdd();
+}
+
+void UPnPNATWrapper::doRemove(NatPortMappingActiveQt *mapping)
+{
+    if (!_collection) {
+        return;
+    }
+    mapping->_blockingUnmap();
 }

@@ -28,7 +28,7 @@ public:
     quint16 externalPort() const;
     QHostAddress externalAddress() const;
     QString description() const;
-    bool unmap();
+    void unmap();
 
     QString protoStr() const;
 private:
